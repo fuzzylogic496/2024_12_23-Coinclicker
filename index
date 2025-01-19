@@ -1,2 +1,579 @@
-#https://github.com/fuzzylogic496/coinclicker.git
-print("hello world, test")
+# Imports necessary modules
+import os # Allows for clearing the screen
+from time import time, sleep # Provides time-related functions
+from random import randint, seed # Provides functions for generating random numbers deterministically
+from tabulate import tabulate # Allows for printing tables
+from math import ceil, log10 # Provides mathematical functions
+
+
+INVISIBLES = [" ", " ", " ", " ", " ", " ", " ", "⠀", " ", " ", " "] # List of invisible characters
+# All are unique, and the first one is a regular space. 
+# These are used to create codes for savestates with numbers as red herrings where the true code is the invisible characters used
+# If the user tries to forge their own code, it will likely be registered as invalid, and if not the regular spaces used will be converted to 0, leaving them with the worst gear and basic stats
+
+seed(255) # Sets the seed for the random number generator. This makes the random numbers generated for the code deterministic
+# The number for the seed does not really matter; I picked 255 because it's a decent size and is the largest number that can be represented by 8 bits.
+# The numbers need to be deterministic so that they seem intentional and not random
+
+def get_code(presses, coins, runtime, equipped_tool):
+  """
+  Turns a list of stats into a code that can be used to load the game state later.
+
+  Parameters:
+  presses (int): The number of times the player has pressed enter. A non-negative integer.
+  coins (int): The amount of coins the player has. A non-negative integer.
+  runtime (float): The amount of time the player has spent playing the game in seconds. A non-negative float.
+  equipped_tool (dict): A dictionary containing the stats of the equipped tool, including (but not limited to!) the following keys:
+    - name (str): The name of the tool.
+    - passive (int): The passive effect: the amount of coins generated per second by the tool.
+    - active (int): The active effect: the number of coins generated each time the user presses enter.
+    - bonus passive (int, optional): The base passive effect that the Recruiter's passive effect is set to when the player breaks the streak. This key only exists if the name of the tool is "Recruiter". 
+
+  Returns:
+  str: A string containing the code that can be used to load the game state later.
+  """
+  presses = str(presses)
+  coins = str(coins)
+  runtime = str(int(ceil(runtime)))
+  equipped_tool = [equipped_tool["name"], equipped_tool["active"], equipped_tool["passive" if equipped_tool["name"] != "Recruiter" else "bonus passive"]]
+  for index, tool in enumerate(TOOLS):
+    if tool["name"] == equipped_tool[0]:
+      equipped_tool[0] = index
+  equipped_tool = [str(value) for value in equipped_tool]
+  for number_string in [presses, coins, runtime] + equipped_tool:
+    code = []
+    for digit in number_string:
+      for _ in range(randint(1, 5)):
+        code.append(str(randint(0, 9)))
+      code.append(INVISIBLES[int(digit)])
+    for _ in range(6):
+      code.append(str(randint(0, 9)))
+    if number_string == presses:
+      presses = code
+    elif number_string == coins:
+      coins = code
+    elif number_string == runtime:
+      runtime = code
+    elif number_string == equipped_tool[0]:
+      equipped_tool[0] = code
+    elif number_string == equipped_tool[1]:
+      equipped_tool[1] = code
+    elif number_string == equipped_tool[2]:
+      equipped_tool[2] = code
+  return "".join(presses + coins + runtime + [item for sublist in equipped_tool for item in sublist])
+
+class UniversalList:
+  """
+  A class that returns True if an item is tested to be in it. 
+  Thereby simulating a list containing all possible values.
+
+  Methods:
+  __contains__ (self, item): Returns True. This overrides the 'in' keyword. 
+  """
+  def __contains__(self, item):
+      return True
+
+def clear():
+    """
+    Clears the terminal screen.
+    For Windows, uses the 'cls' command.
+    For macOS and Linux, uses the 'clear' command.
+    Requires: import os
+    """
+    # for windows
+    if os.name == 'nt':
+        os.system('cls')
+    # for mac and linux (here, os.name is 'posix')
+    else:
+        os.system('clear')
+
+
+def is_valid(inp, values=None, data_type: type = str, 
+    case_sensitive=False, minimum=-float("inf"), 
+    maximum=float("inf"), can_be_min=False, 
+    can_be_max=False):
+  """
+  Checks if a value is valid based on the given parameters.
+
+  Parameters:
+  inp (any): The value to be checked. Usually input from a user
+    values (collection or UniversalList, optional): A collection of all valid \
+  values the inp can be. If the inp is not one of them, it returns False. \
+  Defaults to UniversalList(). If values is UnivisibleList(), the inp can be \
+  any value
+  data_type (type, optional): The data type the inp must be or must be \
+  convertible to. Eg: "1" is a valid value if data_type is int. Defaults \
+  to str
+  case_sensitive (bool, optional): Whether the inp must be case-sensitive \
+  to return True. Only matters if data_type is a string. Defaults to False
+  minimum (int or float, optional): The minimum value the inp must be. \
+  Only matters if data_type is int or float. If can_be_min is True, the \
+  inp can be equal to this value. Defaults to -float("inf"). If the \
+  minimum is -float("inf"), the inp can be any value
+  maximum (int or float, optional): The maximum value the inp must be. \
+  Only matters if data_type is int or float. If can_be_max is True, the \
+  inp can be equal to this value. Defaults to float("inf"). If the \
+  maximum is float("inf"), the inp can be any value
+  can_be_min (bool, optional): Whether the minimum value can be equal to \
+  the inp. Only matters if data_type is int or float. Defaults to False
+  can_be_max (bool, optional): Whether the maximum value can be equal to \
+  the inp. Only matters if data_type is int or float. Defaults to False
+
+  Returns:
+  bool: Whether the inp is valid based on the given parameters.
+  """
+  if values is None:
+    values = UniversalList()  # Instantiate UniversalList inside the function
+    if data_type == str:
+      return True
+  try: 
+    inp = data_type(inp)
+  except (ValueError, TypeError):
+    return False
+  if data_type == str and not case_sensitive:
+    return inp.lower() in [value.lower() for value in values] # type: ignore # \
+    # This is because we know values cannot be an instance of UniversalList \
+    # as this possibility was covered earlier. 
+  elif (data_type in (int, float)) and (
+      inp < minimum or 
+      inp > maximum or 
+      (not can_be_max and inp == maximum) or 
+      (not can_be_min and inp == minimum)
+  ):
+      return False
+  return inp in values
+
+def get_data(code):
+  """
+  Turns a code into a tuple containing the stats of the player.
+
+  Parameters:
+  code (str): The code to be turned into stats.
+
+  Returns:
+  tuple: A tuple containing the stats of the player:
+    - int: The number of times the player has pressed enter. A non-negative integer.
+    - int: The amount of coins the player has. A non-negative integer.
+    - float: The amount of time the player has spent playing the game in seconds. A non-negative float
+    - dict: A dictionary containing the stats of the equipped tool, including the following keys:
+      - name (str): The name of the tool.
+      - cost (int): The original cost of the tool. A non-negative integer.
+      - passive (int): The passive effect: the amount of coins generated per second by the tool.
+      - active (int): The active effect: the number of coins generated each time the user presses enter. A non-negative integer.
+      - bonus passive (int, optional): The base passive effect that the Recruiter's passive effect is set to when the player breaks the streak. This key only exists if the name of the tool is "Recruiter". A non-negative integer.
+      - effect (str): A description in text of the tool's passive and active effects *before* the player has upgraded any of them
+  """
+  sequence_length = 0
+  parts = ["", "", "", "", "", ""]
+  current = 0
+  in_sequence = False
+  for digit in code:
+    if sequence_length >= 6 and not in_sequence:
+      current += 1
+      in_sequence = True
+    if digit in INVISIBLES:
+      parts[current] += str(INVISIBLES.index(digit))
+      sequence_length = 0
+      in_sequence = False
+    else:
+      sequence_length += 1
+  parts = [int(part) for part in parts]
+  parts[3] = TOOLS[parts[3]]
+  parts[3]["active"] = parts.pop(4)
+  parts[3]["passive" if parts[3]["name"] != "Recruiter" else "bonus passive"] = parts.pop(4)
+  return tuple(parts)
+
+def shop(coins, equipped_tool, started_passive, boost, boost_duration, boost_start):
+  """
+  Displays the shop and does the transactions.
+
+  Parameters:
+  coins (int): The amount of coins the player has. A non-negative integer.
+  equipped_tool (dict): A dictionary containing the stats of the equipped tool, including (but not limited to!) the following keys:
+    - name (str): The name of the tool.
+    - passive (int): The passive effect: the amount of coins generated per second by the tool.
+    - active (int): The active effect: the number of coins generated each time the user presses enter. 
+    - bonus passive (int, optional): The base passive effect that the Recruiter's passive effect is set to when the player breaks the streak. This key only exists if the name of the tool is "Recruiter".
+  started_passive (float): The time at which the player last collected their passive coins. A non-negative float.
+  boost (float): The multiplier effect that gets applied to the player's active and passive earnings. A float greater or equal to 1.
+  boost_duration (float): The duration of the boost effect in seconds from when it started. A non-negative float.
+  boost_start (float): The time at which the boost effect started. A non-negative float.
+
+  Returns:
+  tuple: A tuple containing the updated stats of the player:
+    - int: The updated amount of coins the player has. A non-negative integer.
+    - dict: The updated equipped_tool dictionary. See important keys above.
+    - float: The time at which the player last collected their passive coins. A non-negative float.
+    - float: The multiplier effect applied to the player's active and passive earnings. A float greater or equal to 1
+    - float: The duration of the boost effect in seconds from when it started. A non-negative float.
+    - float: The time at which the boost effect started. A non-negative float.
+  """
+  while True:
+    clear()
+    print("Welcome to the shop! You have", coins, "coins.")
+    print("Press \"1\" if you want to buy tools")
+    print("Press \"2\" if you want to buy a boost")
+    print("Press \"3\" if you want to upgrade your current tool")
+    x=input()
+    if x=="":
+      break
+    elif x=="1":
+      print(f"You have {coins} coins")
+      tool_names = [tool["name"] for tool in TOOLS]
+      tool_costs = [tool["cost"] for tool in TOOLS]
+      tool_effects = [tool["effect"] for tool in TOOLS]
+      rows = list(zip(tool_names, tool_costs, tool_effects, list(range(1, len(TOOLS)+1))))
+      columns = ["Tool", "Cost", "Effect", "Select"]
+      print(tabulate(rows, headers=columns, tablefmt="fancy_grid"))
+      inp = None
+      while not is_valid(inp, range(len(TOOLS)+1), int):
+        print("To exit, type 0")
+        print("To buy a tool, type the number of the tool you want to buy")
+        inp = input()
+      inp = int(inp)
+      if inp:
+        if coins >= TOOLS[inp-1]["cost"]:
+          coins -= int(TOOLS[inp-1]["cost"])
+          equipped_tool = TOOLS[inp-1].copy()
+          started_passive = time()
+          print(f"You bought {equipped_tool['name']} for {equipped_tool['cost']}")
+          break
+      else:
+        break
+    elif x=="2":
+      print(f"You have {coins} coins")
+      minutes = None
+      multiplier = None
+      base = None
+      while not is_valid(base, ["1", "2"]):
+        print("Base on multiplier (1) or time (2)?")
+        base = input()
+      if base == "1":
+        print("How high multiplier do you want?")
+        while not is_valid(multiplier, data_type=float, minimum=1):
+          multiplier = input("Enter a number greater than 1: ")
+        # 100 coins allow a 2x multiplier for 1 minute. That means 200 coins for a 2x multiplier for 2 minutes or 4x boost for 1 minute. 1 coin is worth 1/100 of 2x multiplier for 1 minute. so 1 coin is worth 2x multiplier for 0.01 minutes. and 1 coin is worth 4x multiplier for 0.005 minutes.
+        multiplier = float(multiplier)
+        maximum_minutes = coins / (50 * multiplier)
+        print("How long do you want to buy the boost for?")
+        print(f"You have {coins} coins, so you can buy a boost for max {int(maximum_minutes*100)/100} minutes")
+        print("The amount of coins spent is proportional to the time the boost is active for")
+        while (not is_valid(minutes, ["max", "half"])) and not is_valid(minutes, data_type=float, minimum=0, maximum=maximum_minutes):
+          minutes = input("Enter a number between 0 and " + str(int(maximum_minutes*100)/100) + ": ")
+        if minutes.lower() == "max":
+          minutes = maximum_minutes
+        elif minutes.lower() == "half":
+          minutes = maximum_minutes / 2
+        minutes = float(minutes)
+      elif base == "2":
+        print("How many minutes do you want to buy the boost to last for?")
+        maximum_minutes = coins / 50
+        while (not is_valid(minutes, ["max", "half"])) and not is_valid(minutes, data_type=float, minimum=0, maximum=maximum_minutes):
+          minutes = input(f"Enter a number between 0 and {maximum_minutes}: ")
+        if minutes.lower() == "max":
+          minutes = maximum_minutes
+        elif minutes.lower() == "half":
+          minutes = maximum_minutes / 2
+        minutes = float(minutes)
+        maximum_multiplier = coins / (50 * minutes)
+        print("How high multiplier do you want?")
+        print(f"You have {coins} coins, so you can buy a boost for max {int(maximum_multiplier*100)/100}x multiplier")
+        print("The amount of coins spent is proportional to the effect of the boost")
+        while not is_valid(multiplier, ["max", "half"]) and not is_valid(multiplier, data_type=float, minimum=1, maximum=maximum_multiplier):
+          multiplier = input(f"Enter a number between 1 and {int(maximum_multiplier*100)/100}: ")
+        if multiplier.lower() == "max":
+          multiplier = maximum_multiplier
+        elif multiplier.lower() == "half":
+          multiplier = maximum_multiplier / 2
+        multiplier = float(multiplier)
+      else:
+        raise Exception(f"Invalid base. Must be 1 or 2 of type str. Was {base} of type {type(base)}")
+      cost = ceil(50 * multiplier * minutes)
+      coins -= int(cost)
+      boost = multiplier
+      boost_duration = minutes*60
+      boost_start = time()
+      print(f"You bought a {multiplier}x boost for {int(minutes*100)/100} minutes for {cost} coins")
+      break
+    elif x=="3":
+      if equipped_tool["active"] and (equipped_tool["passive"] or equipped_tool["name"] == "Recruiter"):
+        print("Upgrade passive or active?")
+        print("Press \"1\" if you want to upgrade active")
+        print("Press \"2\" if you want to upgrade passive")
+        upgrade = None
+        while not is_valid(upgrade, ["1", "2"]):
+          upgrade = input()
+      elif equipped_tool["active"]:
+        upgrade = "1"
+      elif equipped_tool["passive"]:
+        upgrade = "2"
+      else:
+        raise Exception("Invalid")
+      print(f"Your current {'active' if upgrade == '1' else 'passive'} is {equipped_tool['active' if upgrade == '1' else 'passive']} coins per {'enter' if upgrade == '1' else 'second'}")
+      print("Every point you upgrade it costs 100 coins")
+      print("How many points do you want to upgrade it by?")
+      degree = None
+      maximum_degree = coins // 100
+      while not is_valid(degree, ["max", "half"]) and not is_valid(degree, data_type=int, minimum=0, can_be_min=True, maximum=maximum_degree, can_be_max=True):
+        degree = input(f"Enter an integer between 0 and {maximum_degree}: ")
+      if degree.lower() == "max":
+        degree = maximum_degree
+      elif degree.lower() == "half":
+        degree = int(maximum_degree / 2)
+      degree = int(degree)
+      if equipped_tool["name"] == "Recruiter" and upgrade == "2":
+        equipped_tool["bonus passive"] += degree
+        equipped_tool["passive"] = equipped_tool["bonus passive"]
+      else:
+        equipped_tool["active" if upgrade == "1" else "passive"] += degree
+
+      coins -= degree * 100
+      print(f"Upgraded your {equipped_tool['name']} to {equipped_tool['active' if upgrade == '1' else 'passive']} coin{'s' if (equipped_tool['active' if upgrade == '1' else 'passive']) != 1 else ''} per {'enter' if upgrade == '1' else 'second'}")
+      break
+  return coins, equipped_tool, started_passive, boost, boost_duration, boost_start
+
+def display_stats(coins, tool_name, presses, streak, cps, boost, boost_duration, boost_start, stats_on):
+  """
+  Displays all the stats of the player if toggled on, otherwise only streak. 
+
+  Parameters:
+  coins (int): The amount of coins the player has. A non-negative integer.
+  tool_name (str): The name of the equipped tool.
+  presses (int): The number of times the player has pressed enter. A non-negative integer.
+  streak (int): The number of times the player has pressed enter in a row. A non-negative integer.
+  cps (float): The average number of clicks/presses per second estimated. A non-negative float.
+  boost (float): The multiplier effect that gets applied to the player's active and passive earnings. A float greater or equal to 1.
+  boost_duration (float): The duration of the boost effect in seconds from when it started. A non-negative float
+  boost_start (float): The time at which the boost effect started. A non-negative float.
+  stats_on (bool): Whether or not to display all the stats of the player or just the streak.
+  """
+  if stats_on: # displays stats
+    print(f"Tool: {tool_name}")
+    print("Total Enters: "+str(presses))
+    print("Coins: "+str(coins))
+    print("Streak: "+str(streak))
+    print(f"CPS: {cps:.3f}")
+    if boost != 1: # if the player has a boost, displays the stats involving that
+      print(f"Boost: {boost}x")
+      REMAINING_MINUTES = (boost_duration-(time()-boost_start))/60
+      print(f"Time remaining: {int(REMAINING_MINUTES)} minute{'' if int(REMAINING_MINUTES) == 1 else 's'} and {((REMAINING_MINUTES-int(REMAINING_MINUTES))*60):.3f} seconds")
+  else: # if stats on is turned off, it only displays the streak
+    print(streak)
+
+# Defining the prototypes of the different tools
+PICKAXE = {
+  "name": "Pickaxe",
+  "cost": 10,
+  "active": 1,
+  "passive": 0,
+  "effect": "1 coin per enter" 
+} # pickaxe prototype
+AUTOPICK = {
+  "name": "Autopick",
+  "cost": 50,
+  "active": 1,
+  "passive": 1,
+  "effect": "1 coin per enter, 1 coin per second"
+} # autopick prototype
+HARVESTER = {
+  "name": "Harvester",
+  "cost": 100,
+  "active": 5,
+  "passive": 0,
+  "effect": "5 coins per enter"
+} # harvester prototype
+DRILL = {
+  "name": "Drill",
+  "cost": 500,
+  "active": 3,
+  "passive": 10,
+  "effect": "3 coins per enter, 10 coins per second"
+} # drill prototype
+FACTORY = {
+  "name": "Factory",
+  "cost": 1000,
+  "active": 1,
+  "passive": 60,
+  "effect": "1 coin per enter, 60 coins per second"
+} # factory prototype
+BLOOD_MINER = {
+  "name": "Blood miner",
+  "cost": 1000,
+  "active": 50,
+  "passive": -10,
+  "effect": "50 coins per enter, lose 10 coins per second"
+} # blood miner prototype
+RECRUITER = {
+  "name": "Recruiter",
+  "cost": 2000,
+  "active": 1,
+  "passive": 0,
+  "bonus passive": 0,
+  "effect": "1 coin per enter, coins per second is your streak length"
+} # recruiter prototype
+
+# list of all tools
+# This is done for two purposes:
+#   1: to encode a tool as an index
+#   2: to display the tools in a table
+TOOLS = [PICKAXE, AUTOPICK, HARVESTER, DRILL, FACTORY, BLOOD_MINER, RECRUITER]
+
+equipped_tool = PICKAXE.copy() # the tool the player is currently using. The default value is the pickaxe
+
+# time-related variables
+started_passive = press_10_times_start = cps_start = boost_start = program_start = time()
+
+# For showing cps. Both start at 0 and update as the user presses enter
+press_count_since_cps_update = cps = 0
+
+# boost and previous boost start at 1. A boost of 1 means no boost because the value is multiplied by 1
+boost = previous_boost = 1
+boost_duration = float("inf") # the length of this "boost" is infinite
+
+# Initializes the stats of the player at 0 
+coins = presses = streak = 0 
+
+stats_on = True # Determines whether all the stats are displayed or just the streak
+
+try:
+  display_stats(coins, equipped_tool["name"], presses, streak, cps, boost, boost_duration, boost_start, stats_on) # starts it all by displaying the stats
+  while True: # continues to run the game as long as it can. When it crashes due to overflow, that will be handled as a win
+    previous_boost_remainder = boost_duration - (time() - boost_start) # the remainder of the boost effect, in seconds
+    try:
+      # Attempts to get the input and make it lowercase
+      main_inp=input().lower() # TODO: make it give a coin, press and streak for the first and first after save menu
+    except UnicodeDecodeError:
+      # Handles if the user accidentally hits a key that cannot be decoded within this context
+      main_inp = "" # Assumes the player simply wanted to press enter, and updates the input to reflect that 
+    press_count_since_cps_update += 1 # this counts as a press, so the value is incremented. This is used to calculate cps
+    if time() - boost_start > boost_duration: # if the boost effect has ended.
+      previous_boost = boost # previous boost is updated. It will be used in the calculation of how many coins the player should have earned before the boost ran out
+      boost = 1 # boost is set to 1 because the boost effect has ended. A boost of 1 has no effect because x*1=x
+      boost_start = time() # boost start is updated to the current time, a.k.a. the boost starts now
+      boost_duration = float("inf") # boost duration is set to infinite because it won't run out, but be replaced the next time another boost is bought
+    if time() - started_passive >= 1: # if the player has been passively collecting coins for at least 1 second
+      if previous_boost != 1 and boost == 1 and previous_boost_remainder != float("inf"): # if the player had a boost but it ran out in between the last enter press and now
+        coins += int(equipped_tool["passive"] * ((previous_boost_remainder) // 1) * previous_boost) # coins are added as compensation for how the previous boost should have been generating coins up to the point when it stopped. The previous boost is multiplied by how long of a remainder the boost had. We know this is how long it lasted because the boost is now over.
+        coins += int(equipped_tool["passive"] * ((time() - started_passive - previous_boost_remainder) // 1) * boost) # I suppose I could've removed where it says * boost, since boost is 1, but this shows how the logic remains the same as otherwise. So here it calculates how much time has passed between the previous boost running out and now, and then you get this boost (1)'s effect for that amount of time.  
+        previous_boost = 1 # Previous boost is now set to 1, to avoid entering this if statement again. This way the program knows that we've already been compensated and now we can just get the standard effect. 
+      else: # otherwise, a.k.a. the player has a boost or a boost of 1, but it's been 1 for longer than the last enter press. 
+        coins += int(equipped_tool["passive"] * ((time() - started_passive) // 1) * boost) # coins are added based on the amount of time passed since the last enter press. It is also multiplied by the boost and the current tool's passive effect. Note that the boost might be 1, which equals no effect. 
+      coins = max(coins, 0) # The blood miner has a negative passive effect. This means that now the player might have a negative amount of coins. If the player has gone afk with a blood miner accidentally and now has a negative amount of coins, it can be really hard to recover, so this line is here to prevent that.
+      started_passive = time() # now that we've collected passive coins, we can update the last time we collected passive coins to now. 
+    if time() - cps_start >= 5: # if at least 5 seconds have passed since the last time we updated cps
+      cps = press_count_since_cps_update / (time() - cps_start) # cps is calculated by dividing the number of presses since the last time we updated cps by that amount of time. 
+      press_count_since_cps_update = 0 # press count is reset to 0 because we've just updated cps
+      cps_start = time() # cps start is updated to now, meaning that we've just updated cps
+    clear() # clears the screen to give the impression of 1: if the player presses enter, it appears as though the stats update, and 2: if the player enters a command, it gives the impression that we're moving between menus
+    if presses % 10 == 0: # if the amount of times the player has pressed enter is a multiple of 10, so the logic within this statement occurs every 10 presses
+      if time() - press_10_times_start < 1/3: # if the player has pressed enter 10 times in the last 1/3 of a second
+        # This is meant to stop the player from merely holding down the enter key
+        # based on my tests, 1/3 has a very low false positive rate, meaning that it's rare to manage 30 cps for a third of a second straight
+        # It also seems to have a 100% true positive rate (after time), meaning that if you hold down enter, it will always nail you after a second or two, making it not worthwhile
+        streak = 0 # streak reset to 0 because it's about to open a menu and streak is how long you can go without doing that
+        if equipped_tool["name"] == "Recruiter": # if the player is using the recruiter tool (which gets powers from the streak)
+          equipped_tool["passive"] = equipped_tool["bonus passive"] # the passive effect is reset. It gets reset to the bonus passive effect, which is gained by upgrading its passive effect in the shop
+
+        # Tells the player that they're suspected of cheating and forces them to waste time so that it's not worth it
+        acknowledgement = None
+        while not is_valid(acknowledgement, ["understood"]):
+          clear()
+          print("You were kicked from the server do to suspected holding down the button")
+          print("We are sorry for the inconvenience if this is not the case")
+          print("Type: \"understood\" to acknowledge")
+          acknowledgement = input()
+        rejoin = None
+        while not is_valid(rejoin, ["rejoin"]): 
+          clear()
+          print("Very well")
+          print("We hope this does not happen again")
+          print("Type: \"rejoin\" to return to the server")
+          rejoin = input()
+        print("rejoining in: ")
+        for i in range(5, 0, -1):
+          print(i)
+          sleep(1)
+      press_10_times_start = time() # press 10 times start is updated to now so that we can measure for suspicious cps again
+      clear()
+    if main_inp == "": # if the player just pressed enter without typing anything
+      display_stats(coins, equipped_tool["name"], presses, streak, cps, boost, boost_duration, boost_start, stats_on)
+      
+      # The logic for increasing coins, presses, and the streak whenever the player presses enter
+      coins += int(equipped_tool["active"]*boost) 
+      presses += 1
+      streak += 1
+      if equipped_tool["name"] == "Recruiter": # the recruiter tool also increases its passive effect to reflect the streak
+        equipped_tool["passive"] += 1
+    else: # if the player typed something instead of just pressing enter
+      streak = 0 # the streak represents how long they went just pressing enter, so streak 0 now
+      if equipped_tool["name"] == "Recruiter": # the recruiter tool is based on streak, so it resets its passive effect
+        equipped_tool["passive"] = equipped_tool["bonus passive"] # the bonus passive for the recruiter is what the passive is set to
+
+      # handling logic for different menus/commands the player could have typed
+      if main_inp == "shop":
+        if coins == 0:
+          print("Cannot afford anything, get coins by pressing enter")
+        else:
+          coins, equipped_tool, started_passive, boost, boost_duration, boost_start = shop(coins, equipped_tool, started_passive, boost, boost_duration, boost_start)
+      elif main_inp == "togglestats":
+        stats_on = not stats_on # toggle stats_on
+      elif main_inp == "help":
+        print("Ah, hello adventurer!")
+        print("Here is the full list of commands:")
+
+        # Note that the commands are shown in PascalCase, but they're not actually case-sensitive
+        print("1. Press enter to gain coins")
+        print("2. Type \"Shop\" to open the shop")
+        print("3. Type \"ToggleStats\" to toggle stats on/off")
+        print("4. Type \"Save\" to save your progress")
+        print("5. Type \"Load\" to load your previous savestate")
+        print("6. Type \"Help\" to open this menu")
+      elif main_inp == "load":
+        print("Press enter without typing anything to cancel")
+        print("Enter code from last save:")
+        code = "None"
+        while code: # if the player simply presses enter, the code will be "", so it exits
+          code = input()
+          try:
+            # Essentially resets the game, but with the saved presses, coins, and tool. 
+            # It also changes the time variables like runtime and program_start, which have an impact on final score
+            presses, coins, runtime, equipped_tool = get_data(code)
+            boost = 1
+            boost_duration = float("inf")
+            boost_start = time()
+            program_start = time() - runtime
+            print("Loaded!")
+            print("You have "+str(presses)+" presses")
+            print("You have "+str(coins)+" coins")
+            print(f"Your tool is {equipped_tool['name']}. It gives {equipped_tool['active']} coins per enter {'and ' + str(equipped_tool['passive' if equipped_tool['name'] != 'Recruiter' else 'bonus passive']) + ' coins per second' if equipped_tool['passive' if equipped_tool['name'] != 'Recruiter' else 'bonus passive'] != 0 else ''}")
+            break
+          except ValueError: # The get_data function will crash in the form of a value error if the syntax of the code is wrong. This is handled here
+            print("Invalid code, try again")
+      elif main_inp == "save":
+        print("To save your progress for later, copy and save the following code:")
+        runtime = time() - program_start
+        print(get_code(presses, coins, runtime, equipped_tool))
+        print("Press enter to continue, or type \"Quit\" to quit")
+        if input().lower() == "quit":
+          print("Exiting game ...")
+          sleep(0.5)
+          print("Complete")
+          quit()
+        else:
+          # the save menu was displayed instead of the stats, so now the stats have to be shown so that they appear above where the player's input
+          clear() # so it appears like it changes menu
+          display_stats(coins, equipped_tool["name"], presses, streak, cps, boost, boost_duration, boost_start, stats_on) 
+except OverflowError: # When the player gets so many coins or so high of a stat that it overflows, this is considered a win. Yes, really.
+  clear()
+  print("Coingratulations! You win!") # Note: coingratulations is not a typo
+finally: # The code here happens if the player uses "quit" or if they win the game through OverflowError. A.k.a. when the game ends
+  # Get constants for measures of time. These are used to calculate the final score as well as being displayed
+  PROGRAM_END = time()
+  RUNTIME_SECONDS = PROGRAM_END - program_start
+  MINUTES = int((RUNTIME_SECONDS) // 60)
+  SECONDS = int((RUNTIME_SECONDS) % 60)
+
+  # Calculate and display stats
+  print(f"You played for {MINUTES} minute{'s' if MINUTES != 1 else ''} and {SECONDS} second{'s' if SECONDS != 1 else ''}")
+  print(f"Presses: {presses}")
+  print(f"Score: {(log10(max(coins, equipped_tool['passive'], equipped_tool['active'], boost)) - log10(RUNTIME_SECONDS) - log10(presses)):.2f}")
